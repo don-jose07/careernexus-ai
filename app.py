@@ -49,7 +49,7 @@ if api_key:
     except Exception:
         client = None
 
-# --- STAGE 3: SESSION STATE MANAGEMENT ---
+# --- STAGE 3: SESSION STATE MANAGEMENT & USER DB ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_profile" not in st.session_state:
@@ -57,20 +57,77 @@ if "user_profile" not in st.session_state:
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 
-# --- STAGE 4: AUTHENTICATION (Simplified for development) ---
+# In-memory user registration ledger
+if "user_database" not in st.session_state:
+    st.session_state.user_database = {
+        "student_demo": {
+            "password": "password123",
+            "profile": {
+                "degree": "B.Tech (Computer Science)",
+                "skills": ["Python", "SQL"],
+                "hobbies": "Building Discord bots",
+                "responses": ["Building/coding software", "The Builder (Executing production code/designs)"]
+            }
+        }
+    }
+
+# --- STAGE 4: ADVANCED AUTHENTICATION PORTAL (With Account Creation) ---
 if not st.session_state.authenticated:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.write("<p style='text-align:center; font-size:3rem;'>🎯</p>", unsafe_allow_html=True)
         st.markdown("<h1 style='text-align: center;'>CareerNexus AI</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #64748B;'>Bridging the gap between graduation and employment.</p>", unsafe_allow_html=True)
         st.write("---")
-        with st.form("auth_form"):
-            user_input = st.text_input("Username / Email", value="student_demo")
-            pass_input = st.text_input("Password", type="password", value="password123")
-            if st.form_submit_button("Proceed to Platform"):
-                st.session_state.authenticated = True
-                st.session_state.current_user = user_input
-                st.rerun()
+        
+        # Split options between signing in and registering a new user
+        auth_mode = st.tabs(["🔒 Sign In", "📝 Create Account"])
+        
+        # --- SUB-VIEW 1: SIGN IN FLOW ---
+        with auth_mode[0]:
+            with st.form("login_form"):
+                login_user = st.text_input("Username / Email", placeholder="e.g., student_demo")
+                login_pass = st.text_input("Password", type="password", placeholder="••••••••")
+                
+                if st.form_submit_button("Sign In"):
+                    if login_user in st.session_state.user_database:
+                        if st.session_state.user_database[login_user]["password"] == login_pass:
+                            st.session_state.authenticated = True
+                            st.session_state.current_user = login_user
+                            st.session_state.user_profile = st.session_state.user_database[login_user]["profile"]
+                            st.success("Successfully logged in!")
+                            st.rerun()
+                        else:
+                            st.error("Incorrect password. Please try again.")
+                    else:
+                        st.error("Username not found. Please click 'Create Account' to sign up.")
+                        
+        # --- SUB-VIEW 2: SIGN UP FLOW ---
+        with auth_mode[1]:
+            with st.form("signup_form"):
+                new_user = st.text_input("Choose a Username", placeholder="e.g., don_jose")
+                new_pass = st.text_input("Create a Password", type="password", placeholder="Minimum 6 characters")
+                confirm_pass = st.text_input("Confirm Password", type="password", placeholder="••••••••")
+                
+                if st.form_submit_button("Register Account"):
+                    if not new_user.strip() or len(new_pass) < 6:
+                        st.error("Username cannot be blank, and password must be at least 6 characters.")
+                    elif new_pass != confirm_pass:
+                        st.error("Passwords do not match!")
+                    elif new_user in st.session_state.user_database:
+                        st.error("This username is already taken. Try another one!")
+                    else:
+                        # Write the credentials to our data dictionary
+                        st.session_state.user_database[new_user] = {
+                            "password": new_pass,
+                            "profile": None
+                        }
+                        # Set active authentication states
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = new_user
+                        st.session_state.user_profile = None  # Redirects straight to questionnaire
+                        st.success("Account created successfully!")
+                        st.rerun()
     st.stop()
 
 # --- STAGE 5: AI BACKEND ENGINES ---
@@ -153,7 +210,6 @@ if st.session_state.user_profile is None:
     st.markdown("## 📋 Student Diagnostic Profile")
     st.info("Your answers will be analyzed in real-time by our AI alignment model to construct your career path.")
     
-    # Quick warning badge if they log in but haven't given an API key yet
     if not api_key:
         st.warning("⚠️ Heads up! Please enter your GEMINI_API_KEY in the left sidebar configuration panel so the matching system can run.")
 
@@ -171,12 +227,17 @@ if st.session_state.user_profile is None:
         q2 = st.selectbox("In high-pressure group environments, where do you sit naturally?", ["The Architect (Planning structures)", "The Builder (Executing production code/designs)", "The Manager (Keeping people organized)"])
         
         if st.form_submit_button("Complete Diagnosis & Unlock AI Engine"):
-            st.session_state.user_profile = {
+            profile_payload = {
                 "degree": degree,
                 "skills": skills,
                 "hobbies": hobbies,
                 "responses": [q1, q2]
             }
+            # Save into the session cache
+            st.session_state.user_profile = profile_payload
+            
+            # Save permanently back into user history database entry
+            st.session_state.user_database[st.session_state.current_user]["profile"] = profile_payload
             st.rerun()
     st.stop()
 
@@ -184,14 +245,13 @@ if st.session_state.user_profile is None:
 # --- STAGE 7: MAIN WORKSPACE INTERFACE ---
 profile = st.session_state.user_profile
 
-# Complete sidebar details post-onboarding
 with st.sidebar:
     st.markdown(f"**Track:** {profile['degree']}")
     st.markdown("#### 🛠️ Your Current Skills")
     for s in profile['skills']:
         st.markdown(f"• `{s}`")
     st.write("---")
-    if st.button("Reset Session"):
+    if st.button("Reset / Log Out"):
         st.session_state.authenticated = False
         st.session_state.user_profile = None
         st.rerun()
